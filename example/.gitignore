@@ -1,0 +1,6 @@
+.dart_tool/
+build/
+pubspec.lock
+lib/l10n/gen/
+.verba-token
+.verba-write-token

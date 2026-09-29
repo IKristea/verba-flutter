@@ -1,0 +1,6 @@
+{
+  "@@locale": "ro",
+  "title": "Demo Verba",
+  "hello": "Salut, {name}!",
+  "files": "{count, plural, =0{niciun fișier} one{{count} fișier} few{{count} fișiere} other{{count} de fișiere}}"
+}

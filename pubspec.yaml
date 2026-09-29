@@ -2,7 +2,7 @@ name: verba_translations
 description: >-
   Verba for Flutter — fetch approved translations into your ARB files, push new keys back to Verba,
   and update texts over the air without a new release.
-version: 1.0.0
+version: 1.0.1
 homepage: https://verba.kred
 repository: https://github.com/IKristea/verba-flutter
 

@@ -7,18 +7,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'icu.dart';
 
-/// Textele aduse din Verba la runtime (OTA).
+/// Texts delivered from Verba at runtime (over the air).
 ///
-/// - Căutarea e într-un dicționar în memorie — fără rețea pe calea de randare.
-/// - La pornire se încarcă ultimele texte descărcate (cache în `shared_preferences`), apoi se cere în fundal
-///   câte un bundle per limbă, condiționat (ETag → `304` fără schimbări); la fel la revenirea aplicației în față
-///   și, opțional, la fiecare [interval].
-/// - Verba indisponibil → rămân ultimele texte bune (sau cele compilate); OTA nu blochează și nu aruncă.
-/// - Un text care nu se poate formata (argument lipsă) dă `null` → se folosește textul compilat.
+/// - Lookups hit an in-memory map — no network on the render path.
+/// - On start the last downloaded texts are loaded (cached in `shared_preferences`), then one bundle per
+///   locale is requested in the background, conditionally (ETag → `304` when nothing changed); again whenever
+///   the app returns to the foreground and, optionally, every `interval`.
+/// - Verba unreachable → the last good texts stay (or the compiled ones); OTA never blocks and never throws.
+/// - A text that cannot be formatted (missing argument) yields `null` → the compiled text is used.
 class VerbaOta extends ChangeNotifier with WidgetsBindingObserver {
   VerbaOta._();
 
-  /// Instanța unică; e un [Listenable] — notifică după aplicarea unui set nou de texte.
+  /// The single instance; a [Listenable] that notifies after a new set of texts is applied.
   static final VerbaOta instance = VerbaOta._();
 
   static const _defaultToken = String.fromEnvironment('VERBA_TOKEN');
@@ -35,10 +35,10 @@ class VerbaOta extends ChangeNotifier with WidgetsBindingObserver {
   Future<void>? _inFlight;
   bool _failing = false;
 
-  /// Pornește OTA. [token] implicit din `--dart-define=VERBA_TOKEN=…` (token **read**); fără token, OTA
-  /// rămâne oprit și aplicația folosește textele compilate. [locales] implicit din Verba (`/manifest`).
-  /// [escaping] = `use-escaping: true` din l10n.yaml. Se poate aștepta (`await`) doar încărcarea din cache;
-  /// descărcarea rulează în fundal.
+  /// Starts OTA. `token` defaults to `--dart-define=VERBA_TOKEN=…` (a **read** token); without a token OTA
+  /// stays off and the app uses its compiled texts. `locales` default to the project's locales in Verba.
+  /// Set `escaping` when `l10n.yaml` has `use-escaping: true`. Awaiting only waits for the cache to load;
+  /// the download runs in the background.
   static Future<void> start({
     required String project,
     String? token,
@@ -50,24 +50,24 @@ class VerbaOta extends ChangeNotifier with WidgetsBindingObserver {
   }) =>
       instance._start(project, token ?? _defaultToken, locales, server, interval, escaping, client);
 
-  /// Cere acum textele noi (ex. la pull-to-refresh). Fără efect dacă OTA nu e pornit.
+  /// Fetches new texts now (e.g. on pull-to-refresh). No effect when OTA is not started.
   static Future<void> refresh() => instance._refresh();
 
-  /// Oprește reîmprospătarea (textele deja aduse rămân).
+  /// Stops refreshing (texts already fetched stay).
   static void stop() => instance._stop();
 
-  /// Textul cheii în limba dată (`ro`, `pt-BR`, `pt_BR`), formatat cu [args]; caută și în limba părinte
-  /// (`ro-RO` → `ro`). `null` = necunoscut în Verba → folosește textul compilat.
+  /// The text of [key] in [locale] (`ro`, `pt-BR`, `pt_BR`), formatted with [args]; falls back to the parent
+  /// locale (`ro-RO` → `ro`). `null` = unknown to Verba → use the compiled text.
   static String? get(String locale, String key, [Map<String, Object?> args = const {}]) =>
       instance._get(locale, key, args);
 
-  /// Ca [get], în limba din [context]. Sub un [VerbaScope], widget-ul se reconstruiește la texte noi.
+  /// Like [get], in the locale of [context]. Under a [VerbaScope] the widget rebuilds when new texts arrive.
   static String? text(BuildContext context, String key, [Map<String, Object?> args = const {}]) {
     context.dependOnInheritedWidgetOfExactType<_VerbaInherited>();
     return instance._get(Localizations.localeOf(context).toLanguageTag(), key, args);
   }
 
-  /// Limbile pentru care există texte OTA (cheile normalizate: `ro`, `pt-br`).
+  /// Locales that have OTA texts (normalized: `ro`, `pt-br`).
   static Iterable<String> get locales => instance._data.keys;
 
   Future<void> _start(String project, String token, List<String>? locales, String server, Duration? interval,
@@ -80,7 +80,7 @@ class VerbaOta extends ChangeNotifier with WidgetsBindingObserver {
     _escaping = escaping;
     _client = client ?? http.Client();
     if (_token.isEmpty) {
-      debugPrint('Verba OTA: fără token (--dart-define=VERBA_TOKEN=…) — rămân textele compilate');
+      debugPrint('Verba OTA: no token (--dart-define=VERBA_TOKEN=…) — using compiled texts');
       return;
     }
     await _loadCache();
@@ -113,7 +113,7 @@ class VerbaOta extends ChangeNotifier with WidgetsBindingObserver {
     return null;
   }
 
-  // o singură reîmprospătare simultan (resume + timer + refresh manual)
+  // a single refresh at a time (resume + timer + manual refresh)
   Future<void> _refresh() => _inFlight ??= _doRefresh().whenComplete(() => _inFlight = null);
 
   Future<void> _doRefresh() async {
@@ -143,12 +143,12 @@ class VerbaOta extends ChangeNotifier with WidgetsBindingObserver {
         changed = true;
         unawaited(_saveCache(locale, body, r.headers['etag']));
       }
-      if (_failing) debugPrint('Verba OTA: conexiunea a revenit');
+      if (_failing) debugPrint('Verba OTA: connection restored');
       _failing = false;
       if (changed) notifyListeners();
     } catch (e) {
-      // o singură avertizare per întrerupere
-      if (!_failing) debugPrint('Verba OTA: nu pot aduce textele, rămân cele curente ($e)');
+      // one warning per outage
+      if (!_failing) debugPrint('Verba OTA: cannot fetch texts, keeping current ones ($e)');
       _failing = true;
     }
   }
@@ -177,7 +177,7 @@ class VerbaOta extends ChangeNotifier with WidgetsBindingObserver {
       }
       if (_data.isNotEmpty) notifyListeners();
     } catch (e) {
-      debugPrint('Verba OTA: cache ilizibil, îl ignor ($e)');
+      debugPrint('Verba OTA: unreadable cache, ignoring it ($e)');
     }
   }
 
@@ -187,7 +187,7 @@ class VerbaOta extends ChangeNotifier with WidgetsBindingObserver {
       await prefs.setString(_cacheKey(locale), body);
       if (etag != null) await prefs.setString('${_cacheKey(locale)}.etag', etag);
     } catch (_) {
-      // cache-ul e doar o optimizare
+      // the cache is only an optimization
     }
   }
 
@@ -203,7 +203,7 @@ class VerbaOta extends ChangeNotifier with WidgetsBindingObserver {
     return i < 0 ? '' : tag.substring(0, i);
   }
 
-  /// Golește textele (teste).
+  /// Clears all texts (tests).
   @visibleForTesting
   static void reset() {
     instance._stop();
@@ -214,8 +214,7 @@ class VerbaOta extends ChangeNotifier with WidgetsBindingObserver {
   }
 }
 
-/// Pune deasupra aplicației ca widget-urile care citesc prin [VerbaOta.text] să se reconstruiască
-/// atunci când sosesc texte noi.
+/// Place above your app so widgets that read through [VerbaOta.text] rebuild when new texts arrive.
 class VerbaScope extends StatelessWidget {
   const VerbaScope({super.key, required this.child});
 

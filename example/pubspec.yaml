@@ -1,5 +1,5 @@
 name: verba_example
-description: Aplicație minimă cu verba_translations (fetch/push ARB + OTA).
+description: Minimal app using verba_translations (ARB fetch/push + OTA).
 publish_to: none
 version: 1.0.0
 
@@ -20,4 +20,4 @@ flutter:
   uses-material-design: true
 
 verba:
-  project: slug-proiect
+  project: my-project

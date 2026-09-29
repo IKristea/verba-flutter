@@ -1,0 +1,28 @@
+# Publishes to pub.dev when a tag vX.Y.Z is pushed (pub.dev automated publishing, OIDC — no stored secret).
+# pub.dev → verba_translations → Admin → Automated publishing: repository IKristea/verba-flutter, tag pattern v{{version}}.
+name: Publish to pub.dev
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # the OIDC token pub.dev verifies
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1   # configures the pub.dev OIDC credentials
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - name: Tag matches pubspec version
+        run: |
+          v=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != pubspec version $v"; exit 1; }
+      - run: flutter pub publish --force

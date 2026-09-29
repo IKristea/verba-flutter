@@ -1,10 +1,10 @@
-/// ARB → Verba, inversul exportului `flutter-arb` din Verba (folosit la push). Dart pur, fără Flutter.
+/// ARB → Verba, the inverse of Verba's `flutter-arb` export (used by push). Pure Dart, no Flutter.
 ///
-/// - `{count, plural, one{…} other{…}}` (tot mesajul) → chei plate `nume__one`, `nume__other`, cu `{count}` → `%d`
-///   (așa stochează Verba pluralele, comune cu Android/iOS); `=0`/`=1`/`=2` → zero/one/two;
-/// - `{arg0}` → `{0}` (exportul face invers);
-/// - cu escaping: `'{'` → `{{` (acoladă literală în Verba), `''` → `'`;
-/// - orice alt mesaj ICU (select, plural în mijlocul textului) rămâne neschimbat.
+/// - `{count, plural, one{…} other{…}}` (the whole message) → flat keys `name__one`, `name__other`, `{count}` → `%d`
+///   (how Verba stores plurals, shared with Android/iOS); `=0`/`=1`/`=2` → zero/one/two;
+/// - `{arg0}` → `{0}` (the export does the reverse);
+/// - with escaping: `'{'` → `{{` (a literal brace in Verba), `''` → `'`;
+/// - any other ICU message (select, plural in the middle of a text) stays unchanged.
 Map<String, String> arbToVerba(String key, String message, {bool escaping = false}) {
   final plural = _wholePlural(message);
   if (plural != null) {
@@ -12,7 +12,7 @@ Map<String, String> arbToVerba(String key, String message, {bool escaping = fals
     final out = <String, String>{};
     for (final MapEntry(key: selector, value: body) in cases.entries) {
       final q = switch (selector) { '=0' => 'zero', '=1' => 'one', '=2' => 'two', _ => selector };
-      if (!_quantities.contains(q)) return {key: _simple(message, escaping)}; // =5{…}: nu are formă plată
+      if (!_quantities.contains(q)) return {key: _simple(message, escaping)}; // =5{…}: no flat form
       out['${key}__$q'] = _simple(body, escaping).replaceAll('{$arg}', '%d');
     }
     return out;
@@ -23,7 +23,7 @@ Map<String, String> arbToVerba(String key, String message, {bool escaping = fals
 const _quantities = {'zero', 'one', 'two', 'few', 'many', 'other'};
 
 String _simple(String message, bool escaping) {
-  // mesajele complexe (select, plural interior) se păstrează ca atare
+  // complex messages (select, nested plural) are kept as they are
   if (RegExp(r'\{\s*\w+\s*,\s*(plural|select|selectordinal)\s*,').hasMatch(message)) return message;
   final s = message.replaceAllMapped(RegExp(r'\{arg(\d+)\}'), (m) => '{${m[1]}}');
   if (!escaping) return s;
@@ -50,7 +50,7 @@ String _simple(String message, bool escaping) {
   return out.toString();
 }
 
-/// `{x, plural, a{…} b{…}}` care acoperă tot mesajul → (x, {selector: corp}); altfel null.
+/// `{x, plural, a{…} b{…}}` spanning the whole message → (x, {selector: body}); otherwise null.
 (String, Map<String, String>)? _wholePlural(String message) {
   final head = RegExp(r'^\s*\{\s*(\w+)\s*,\s*plural\s*,').firstMatch(message);
   if (head == null) return null;
@@ -72,7 +72,7 @@ String _simple(String message, bool escaping) {
       pos++;
     }
     if (pos >= message.length || message[pos] != '{') return null;
-    // corpul: până la acolada pereche
+    // the body: up to the matching brace
     var depth = 0;
     final start = pos + 1;
     for (; pos < message.length; pos++) {

@@ -1,11 +1,11 @@
 import 'package:intl/intl.dart' show Intl;
 
-/// Formatare ICU minimă pentru textele OTA — același subset pe care îl acceptă `flutter gen-l10n`:
-/// `{name}`, `{n, plural, =0{…} one{…} other{…}}`, `{x, select, a{…} other{…}}`, plus `#` în plural.
-/// Cu [escaping] (l10n.yaml `use-escaping: true`): `''` → `'`, iar `'{…}'` e text literal.
+/// Minimal ICU formatting for OTA texts — the subset `flutter gen-l10n` accepts:
+/// `{name}`, `{n, plural, =0{…} one{…} other{…}}`, `{x, select, a{…} other{…}}`, plus `#` inside plural.
+/// With [escaping] (`use-escaping: true` in l10n.yaml): `''` → `'`, and `'{…}'` is literal text.
 ///
-/// Orice mesaj care nu se poate parsa sau formata (argument lipsă, sintaxă greșită) dă `null` —
-/// apelantul folosește atunci textul compilat, deci OTA nu poate strica un ecran.
+/// Any message that cannot be parsed or formatted (missing argument, bad syntax) yields `null` —
+/// the caller then uses the compiled text, so OTA can never break a screen.
 String? formatIcu(String message, Map<String, Object?> args, {String? locale, bool escaping = false}) {
   try {
     final nodes = _Parser(message, escaping).parseAll();

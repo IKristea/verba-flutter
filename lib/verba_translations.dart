@@ -1,10 +1,10 @@
-/// Verba OTA pentru Flutter: textele modificate în Verba apar în aplicație fără release nou.
+/// Verba OTA for Flutter: texts changed in Verba show up in the app without a new release.
 ///
 /// ```dart
-/// await VerbaOta.start(project: 'slug-proiect');         // token: --dart-define=VERBA_TOKEN=…
+/// await VerbaOta.start(project: 'my-project');           // token: --dart-define=VERBA_TOKEN=…
 /// runApp(const VerbaScope(child: MyApp()));
 ///
-/// // în widget — Verba întâi, apoi textul compilat din gen-l10n
+/// // in a widget — Verba first, then the compiled gen-l10n text
 /// Text(VerbaOta.text(context, 'greeting', {'name': user}) ?? l10n.greeting(user))
 /// ```
 library;

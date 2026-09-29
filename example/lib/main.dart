@@ -5,8 +5,8 @@ import 'l10n/gen/app_localizations.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // tokenul read: flutter run --dart-define=VERBA_TOKEN=$(cat .verba-token)
-  await VerbaOta.start(project: 'slug-proiect');
+  // read token: flutter run --dart-define=VERBA_TOKEN=$(cat .verba-token)
+  await VerbaOta.start(project: 'my-project');
   runApp(const VerbaScope(child: DemoApp()));
 }
 

@@ -19,6 +19,9 @@ jobs:
         with:
           channel: stable
       - run: flutter pub get
+      - name: Generate example localizations
+        working-directory: example
+        run: flutter pub get && flutter gen-l10n
       - run: flutter analyze
       - run: flutter test
       - name: Tag matches pubspec version

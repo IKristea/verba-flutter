@@ -4,17 +4,23 @@
 //   dart run verba_translations --push     push only
 //   dart run verba_translations --no-push  fetch without the automatic push
 //
-// Minimal config in pubspec.yaml:   verba: { project: slug }
+// Config: verba.yaml next to pubspec.yaml, or a `verba:` section in pubspec.yaml (verba.yaml wins):
+//   project: slug            (required)
+//   server: https://…        (self-hosting; default https://verba.kred)
+//   locales: [en, ro]        (default: from Verba)
+//   download_token: …        (read: fetch, OTA)
+//   upload_token: …          (write: push)
 // Everything else is inferred:
 //  - locales       → from Verba (GET /manifest, by token)
 //  - arb-dir       → from l10n.yaml (default lib/l10n)
 //  - file names    → from template-arb-file in l10n.yaml (default app_en.arb): app_<locale>.arb, pt-BR → app_pt_BR.arb
 //  - use-escaping  → from l10n.yaml; with it, literal braces become '{' '}' and an apostrophe ''
-// Optional in the verba section: server (self-hosting), locales.
 //
-// Tokens, looked up in order (files next to pubspec.yaml, gitignored):
-//   read : env VERBA_TOKEN       → .verba-token
-//   write: env VERBA_WRITE_TOKEN → .verba-write-token
+// Tokens, looked up in order (keep verba.yaml and the token files out of git when they hold tokens):
+//   read : env VERBA_TOKEN       → download_token → .verba-token
+//   write: env VERBA_WRITE_TOKEN → upload_token   → .verba-write-token
+// Push also sends the template's `@key.description` (filled in Verba only where a key has none); fetch keeps the
+// template's metadata (descriptions, placeholder types and order), so the generated methods do not change.
 // Push = POST /projects/{slug}/push: creates missing keys and fills empty values; anything already in Verba
 // is left untouched (Verba is the source of truth) and keys deleted in Verba are not revived.
 // Fail-soft: any error → warning, exit 0 (never breaks a build or CI).
@@ -32,15 +38,23 @@ Future<void> main(List<String> args) async {
 
   final pubspec = File('$root/pubspec.yaml');
   if (!pubspec.existsSync()) return warn('run from your app root (no pubspec.yaml) — skipping.');
-  final YamlMap? cfg;
+  YamlMap? cfg;
+  final verbaYaml = File('$root/verba.yaml');
   try {
-    final y = loadYaml(pubspec.readAsStringSync());
-    cfg = y is YamlMap && y['verba'] is YamlMap ? y['verba'] as YamlMap : null;
+    if (verbaYaml.existsSync()) {
+      final y = loadYaml(verbaYaml.readAsStringSync());
+      cfg = y is YamlMap ? y : null;
+    } else {
+      final y = loadYaml(pubspec.readAsStringSync());
+      cfg = y is YamlMap && y['verba'] is YamlMap ? y['verba'] as YamlMap : null;
+    }
   } on YamlException catch (e) {
-    return warn('pubspec.yaml invalid: ${e.message}');
+    return warn('${verbaYaml.existsSync() ? 'verba.yaml' : 'pubspec.yaml'} invalid: ${e.message}');
   }
   final project = cfg?['project']?.toString();
-  if (project == null || project.isEmpty) return warn('missing `verba: project: <slug>` in pubspec.yaml — skipping.');
+  if (project == null || project.isEmpty) {
+    return warn('missing `project: <slug>` in verba.yaml (or `verba: project:` in pubspec.yaml) — skipping.');
+  }
 
   // l10n.yaml: same keys as `flutter gen-l10n`
   YamlMap l10n = YamlMap();
@@ -60,13 +74,13 @@ Future<void> main(List<String> args) async {
 
   final server = (cfg?['server']?.toString() ?? 'https://verba.kred').replaceAll(RegExp(r'/+$'), '');
   final projectUrl = '$server/projects/${Uri.encodeComponent(project)}';
-  final readToken = findToken(root, 'VERBA_TOKEN', '.verba-token');
-  final writeToken = findToken(root, 'VERBA_WRITE_TOKEN', '.verba-write-token');
+  final readToken = findToken(root, 'VERBA_TOKEN', cfg?['download_token'], '.verba-token');
+  final writeToken = findToken(root, 'VERBA_WRITE_TOKEN', cfg?['upload_token'], '.verba-write-token');
   if (pushOnly && writeToken == null) {
-    return warn('push: no write token (env VERBA_WRITE_TOKEN or .verba-write-token) — skipping.');
+    return warn('push: no write token (env VERBA_WRITE_TOKEN, upload_token or .verba-write-token) — skipping.');
   }
   if (!pushOnly && readToken == null && writeToken == null) {
-    return warn('no token (env VERBA_TOKEN or .verba-token) — skipping, existing files kept.');
+    return warn('no token (env VERBA_TOKEN, download_token or .verba-token) — skipping, existing files kept.');
   }
   final token = readToken ?? writeToken!;
   final client = http.Client();
@@ -99,6 +113,16 @@ Future<void> main(List<String> args) async {
     if (templateLocale == null && !pushOnly) {
       warn('$template matches no Verba locale (${locales.join(', ')}) — gen-l10n needs it.');
     }
+    // the template's metadata (descriptions, placeholder types/order), read before fetch overwrites the file
+    var templateArb = <String, dynamic>{};
+    final templateFile = File('${arbDir.path}/$template');
+    if (templateFile.existsSync()) {
+      try {
+        templateArb = jsonDecode(templateFile.readAsStringSync()) as Map<String, dynamic>;
+      } catch (e) {
+        warn('$template: $e — its metadata is not kept.');
+      }
+    }
 
     // ===== PUSH: new keys/texts from ARB → Verba (before fetch, so fetch does not drop them) =====
     final pushFailed = <String>{};
@@ -119,7 +143,11 @@ Future<void> main(List<String> args) async {
           final r = await client
               .post(Uri.parse('$projectUrl/push'),
                   headers: {...auth(writeToken), 'Content-Type': 'application/json'},
-                  body: jsonEncode({'locale': locale, 'values': values}))
+                  body: jsonEncode({
+                    'locale': locale,
+                    'values': values,
+                    if (locale == templateLocale) 'descriptions': arbDescriptions(arb, escaping: escaping),
+                  }))
               .timeout(timeout);
           final body = utf8.decode(r.bodyBytes);
           if (r.statusCode != 200) {
@@ -154,7 +182,7 @@ Future<void> main(List<String> args) async {
           warn('[$locale] HTTP ${r.statusCode} — keeping the existing file.');
           continue;
         }
-        final body = utf8.decode(r.bodyBytes);
+        final body = mergeLocalMetadata(utf8.decode(r.bodyBytes), templateArb);
         write(fileFor(locale), body, locale);
         // gen-l10n needs the base locale next to a regional one (pt_BR → pt); if Verba lacks it, copy it
         final base = locale.split(RegExp('[-_]')).first;
@@ -186,8 +214,9 @@ String arbPrefix(String template) {
   return m?[1] ?? 'app_';
 }
 
-String? findToken(String root, String env, String fileName) {
+String? findToken(String root, String env, Object? configured, String fileName) {
   var t = Platform.environment[env];
+  if (t == null || t.trim().isEmpty) t = configured?.toString();
   final file = File('$root/$fileName');
   if ((t == null || t.trim().isEmpty) && file.existsSync()) {
     t = file.readAsLinesSync().firstOrNull;

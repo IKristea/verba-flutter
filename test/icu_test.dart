@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:verba_translations/src/arb_convert.dart';
 import 'package:verba_translations/src/icu.dart';
@@ -66,6 +68,129 @@ void main() {
     test('escaping → acolade dublate în Verba', () {
       expect(arbToVerba('mask', "l''app MD-'{'AAAA'}'", escaping: true), {'mask': "l'app MD-{{AAAA}}"});
       expect(arbToVerba('mask', "l'app"), {'mask': "l'app"});
+    });
+  });
+
+  group('arbDescriptions', () {
+    test('plain message and every plural form get the description', () {
+      final arb = <String, dynamic>{
+        'title': 'Home',
+        '@title': {'description': 'Screen title'},
+        'items': '{count, plural, one{{count} item} other{{count} items}}',
+        '@items': {'description': 'Cart items'},
+        'plain': 'x',
+        '@plain': {},
+      };
+      expect(arbDescriptions(arb), {'title': 'Screen title', 'items__one': 'Cart items', 'items__other': 'Cart items'});
+    });
+  });
+
+  group('mergeLocalMetadata', () {
+    String remote(Map<String, dynamic> arb) => jsonEncode(arb);
+    Map<String, dynamic> merged(Map<String, dynamic> fetched, Map<String, dynamic> template) =>
+        jsonDecode(mergeLocalMetadata(remote(fetched), template)) as Map<String, dynamic>;
+
+    test('keeps local description, types and placeholder order', () {
+      final out = merged({
+        '@@locale': 'ro',
+        'range': 'Între {min} și {max} cifre.',
+        '@range': {
+          'placeholders': {
+            'max': {'type': 'String'},
+            'min': {'type': 'String'}
+          }
+        },
+      }, {
+        'range': 'Between {min} and {max} digits.',
+        '@range': {
+          'description': 'Phone length',
+          'placeholders': {
+            'min': {'type': 'int', 'example': '8'},
+            'max': {'type': 'int'}
+          },
+        },
+      });
+      expect(out['range'], 'Între {min} și {max} cifre.');
+      expect(out['@range']['description'], 'Phone length');
+      expect((out['@range']['placeholders'] as Map).keys.toList(), ['min', 'max']);
+      expect(out['@range']['placeholders']['min'], {'type': 'int', 'example': '8'});
+    });
+
+    test('plural argument goes back to its local name', () {
+      final out = merged({
+        'days': '{count, plural, one{{count} day / {traffic}} other{{count} days / {traffic}}}',
+        '@days': {
+          'placeholders': {
+            'count': {'type': 'int'},
+            'traffic': {'type': 'String'}
+          }
+        },
+      }, {
+        'days': '{days, plural, one{{days} day / {traffic}} other{{days} days / {traffic}}}',
+        '@days': {
+          'placeholders': {
+            'days': {'type': 'int'},
+            'traffic': {'type': 'String', 'example': '3 GB'}
+          }
+        },
+      });
+      expect(out['days'], '{days, plural, one{{days} day / {traffic}} other{{days} days / {traffic}}}');
+      expect((out['@days']['placeholders'] as Map).keys.toList(), ['days', 'traffic']);
+    });
+
+    test('placeholder new in Verba is added, unused local one is dropped', () {
+      final out = merged({
+        'hi': 'Hi {name}, {city}',
+        '@hi': {
+          'placeholders': {
+            'city': {'type': 'String'},
+            'name': {'type': 'String'}
+          }
+        },
+      }, {
+        'hi': 'Hi {name}, {age}',
+        '@hi': {
+          'placeholders': {
+            'name': {'type': 'String'},
+            'age': {'type': 'int'}
+          }
+        },
+      });
+      expect(out['@hi']['placeholders'], {
+        'name': {'type': 'String'},
+        'city': {'type': 'String'}
+      });
+    });
+
+    test('keys without local metadata keep what Verba sent', () {
+      final out = merged({
+        'title': 'Acasă',
+        '@title': {'description': 'From Verba'},
+        'other': 'x',
+      }, {
+        'title': 'Home'
+      });
+      expect(out['@title'], {'description': 'From Verba'});
+      expect(out.containsKey('@other'), isFalse);
+    });
+
+    test('inner placeholders of select/plural messages are kept', () {
+      final out = merged({
+        'sent': '{email, select, NONE{Sent} other{Sent to {email}}}',
+        '@sent': {
+          'placeholders': {
+            'email': {'type': 'String'}
+          }
+        },
+      }, {
+        'sent': '{email, select, NONE{Sent} other{Sent to {email}}}',
+        '@sent': {
+          'placeholders': {
+            'email': {'type': 'String', 'example': 'a@b.c'}
+          }
+        },
+      });
+      expect(out['@sent']['placeholders']['email']['example'], 'a@b.c');
     });
   });
 }
